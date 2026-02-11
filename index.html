@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Visor 3D - Zoom por Distancia</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', sans-serif; }
+        
+        /* UI FLOTANTE */
+        #hud {
+            position: absolute; top: 20px; left: 20px; z-index: 10;
+            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 12px;
+            color: white; border-left: 4px solid #00aaff; font-size: 14px;
+            pointer-events: none;
+        }
+        .highlight { color: #00ff00; font-weight: bold; }
+        
+        /* CONTROLES */
+        #controls {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 10;
+            display: flex; gap: 10px;
+        }
+        button {
+            background: #222; color: white; border: 1px solid #555; padding: 10px 25px;
+            cursor: pointer; border-radius: 30px; font-weight: bold; transition: 0.3s;
+        }
+        button:hover { background: #00aaff; border-color: #00aaff; box-shadow: 0 0 15px #00aaff; }
+
+        /* LAYERS */
+        #c3d { position: absolute; top: 0; left: 0; z-index: 1; }
+        #output_canvas { position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none; opacity: 0.5; }
+        .input_video { display: none; }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="hud">
+        <div>ESTADO: <span id="status-text" class="highlight">BUSCANDO MANO...</span></div>
+        <hr style="border-color: #333; margin: 8px 0;">
+        <div>🖐️ Mano Abierta: <b>Rotar + Zoom</b></div>
+        <div>✊ Puño Cerrado: <b>Arrastrar</b></div>
+        <br>
+        <div>Distancia Mano: <span id="debug-dist">0%</span></div>
+    </div>
+
+    <div id="controls">
+        <button onclick="document.getElementById('file-input').click()">📂 Cargar Modelo</button>
+        <button onclick="resetView()">↺ Resetear</button>
+        <input type="file" id="file-input" accept=".glb, .gltf" style="display:none">
+    </div>
+
+    <canvas id="output_canvas"></canvas>
+    <video class="input_video"></video>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // ==========================================
+        // 1. ESCENA 3D (THREE.JS)
+        // ==========================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a0a);
+        scene.fog = new THREE.FogExp2(0x0a0a0a, 0.04);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5); // Z = 5 es la distancia base
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.domElement.id = 'c3d';
+        document.body.insertBefore(renderer.domElement, document.getElementById('output_canvas'));
+
+        // Luces y Grid
+        const grid = new THREE.GridHelper(50, 50, 0x222222, 0x111111);
+        grid.position.y = -1;
+        scene.add(grid);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(5, 5, 5);
+        scene.add(dirLight);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+        // Contenedor principal
+        const modelGroup = new THREE.Group();
+        scene.add(modelGroup);
+
+        // Modelo Base (Cubo de neón)
+        let model = new THREE.Mesh(
+            new THREE.BoxGeometry(1.2, 1.2, 1.2),
+            new THREE.MeshStandardMaterial({ color: 0x00aaff, roughness: 0.2, metalness: 0.8 })
+        );
+        modelGroup.add(model);
+
+        // Cargar Modelos GLB/GLTF
+        const loader = new GLTFLoader();
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const url = URL.createObjectURL(e.target.files[0]);
+            loader.load(url, (gltf) => {
+                modelGroup.remove(model);
+                model = gltf.scene;
+                
+                // Normalizar tamaño
+                const box = new THREE.Box3().setFromObject(model);
+                const size = new THREE.Vector3(); box.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = 2.5 / maxDim;
+                model.scale.set(scale, scale, scale);
+                
+                // Centrar
+                const center = new THREE.Vector3(); box.getCenter(center);
+                model.position.sub(center.multiplyScalar(scale));
+
+                modelGroup.add(model);
+            });
+        });
+
+        window.resetView = () => {
+            modelGroup.rotation.set(0,0,0);
+            modelGroup.position.set(0,0,0);
+            tZoom = 5;
+        };
+
+        // ==========================================
+        // 2. LÓGICA DE GESTOS (Mano Grande = Zoom)
+        // ==========================================
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusText = document.getElementById('status-text');
+        const debugDist = document.getElementById('debug-dist');
+
+        // Variables Objetivo (Target) para suavizado
+        let tRotX = 0, tRotY = 0;
+        let tPanX = 0, tPanY = 0;
+        let tZoom = 5; // Distancia de cámara (Menos es cerca, Más es lejos)
+
+        function onResults(results) {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                statusText.innerText = "DETECTADO ✅";
+                statusText.style.color = "#00ff00";
+
+                const lm = results.multiHandLandmarks[0];
+                
+                // Dibujar Esqueleto (Feedback visual esencial)
+                drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#00aaff', lineWidth: 2});
+                drawLandmarks(canvasCtx, lm, {color: '#ffffff', lineWidth: 1});
+
+                // --- PUNTOS CLAVE ---
+                const wrist = lm[0];       // Muñeca
+                const middleTip = lm[12];  // Punta dedo medio
+                const indexTip = lm[8];    // Punta índice
+                const pinkyTip = lm[20];   // Punta meñique
+                const pinkyBase = lm[17];  // Base meñique
+
+                // 1. DETECTAR SI ES PUÑO (Para arrastrar)
+                // Si la punta del meñique y el anular están cerca de la palma
+                const isFist = (pinkyTip.y > pinkyBase.y - 0.05);
+
+                // 2. CALCULAR TAMAÑO DE LA MANO (Para Zoom)
+                // Distancia entre Muñeca y Punta del Dedo Medio
+                // Esto nos dice qué tan cerca está la mano de la cámara
+                const handSize = Math.hypot(middleTip.x - wrist.x, middleTip.y - wrist.y);
+                
+                // Mostrar valor en pantalla (0.2 es lejos, 0.6 es muy cerca)
+                debugDist.innerText = Math.round(handSize * 100) + "%";
+
+                if (isFist) {
+                    // === MODO ARRASTRAR (PAN) ===
+                    statusText.innerText = "✊ ARRASTRANDO";
+                    // Movemos posición X/Y del grupo
+                    tPanX = (0.5 - wrist.x) * 8; 
+                    tPanY = (0.5 - wrist.y) * 8;
+                } else {
+                    // === MODO ROTAR + ZOOM ===
+                    statusText.innerText = "🖐️ ROTANDO + ZOOM";
+
+                    // A. Rotación (Basada en posición X/Y de la muñeca)
+                    tRotY = (wrist.x - 0.5) * 6;  // Izq/Der
+                    tRotX = (wrist.y - 0.5) * 4;  // Arriba/Abajo
+
+                    // B. Zoom (Basado en handSize)
+                    // Fórmula: Base - (Tamaño * Multiplicador)
+                    // Si handSize es 0.2 (lejos) -> Zoom = 8 - 2 = 6 (Lejos)
+                    // Si handSize es 0.5 (cerca) -> Zoom = 8 - 5 = 3 (Cerca)
+                    let targetZ = 8 - (handSize * 10);
+                    
+                    // Límites (Clamp) para que no atraviese la cámara ni se vaya al infinito
+                    tZoom = Math.max(1.5, Math.min(9, targetZ));
+                }
+
+            } else {
+                statusText.innerText = "BUSCANDO MANO...";
+                statusText.style.color = "yellow";
+            }
+            canvasCtx.restore();
+        }
+
+        // Configuración Rápida (Lite)
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0, // 0 = Modelo ligero (Más rápido)
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+        cameraUtils.start();
+
+        // ==========================================
+        // 3. ANIMACIÓN (FÍSICA)
+        // ==========================================
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Interpolación LERP (Suavizado)
+            // Esto hace que el movimiento se sienta fluido como el agua
+            const smooth = 0.08;
+
+            // Aplicar Rotación
+            modelGroup.rotation.y += (tRotY - modelGroup.rotation.y) * smooth;
+            modelGroup.rotation.x += (tRotX - modelGroup.rotation.x) * smooth;
+
+            // Aplicar Paneo (Posición X/Y)
+            modelGroup.position.x += (tPanX - modelGroup.position.x) * smooth;
+            modelGroup.position.y += (tPanY - modelGroup.position.y) * smooth;
+
+            // Aplicar Zoom (Cámara Z)
+            camera.position.z += (tZoom - camera.position.z) * smooth;
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        });
+
+        animate();
+    </script>
+</body>
+</html>
