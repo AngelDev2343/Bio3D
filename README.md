@@ -201,10 +201,6 @@ Navegadores recomendados:
 
 ## ❓ FAQ
 
-### ¿Funciona offline?
-
-Sí, siempre que las dependencias estén en caché.
-
 ### ¿Se almacenan modelos?
 
 No, se cargan temporalmente en memoria.
