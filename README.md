@@ -26,6 +26,18 @@ demostrativos y experimentales.
 
 ------------------------------------------------------------------------
 
+## 🖥️ Demo
+
+<div align="center">
+
+[¡Proba ahora aquí!](https://AngelDev2343.github.io/Bio3D)
+
+![demo](https://github.com/AngelDev2343/land/blob/main/gifs/3d1.gif?raw=true)
+
+</div>
+
+------------------------------------------------------------------------
+
 ## 🎯 Objetivo del proyecto
 
 Bio3D nace como un experimento técnico con un enfoque claro:
@@ -188,15 +200,6 @@ Navegadores recomendados:
 
 -   Soporte para múltiples manos
 -   Gestos adicionales (pinch para zoom fino)
-
-------------------------------------------------------------------------
-
-## 🖥️ Demo
-
-[Proba ahora aquí!](https://AngelDev2343.github.io/Bio3D)
-
-![demo](https://github.com/AngelDev2343/land/blob/main/gifs/3d1.gif?raw=true)
-
 
 ------------------------------------------------------------------------
 
