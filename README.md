@@ -193,7 +193,7 @@ Navegadores recomendados:
 
 ## 🖥️ Demo
 
-Proba ahora: [demo](https://AngelDev2343.github.io/Bio3D)
+[Proba ahora](https://AngelDev2343.github.io/Bio3D)
 
 ![demo](https://)
 
