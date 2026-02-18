@@ -170,8 +170,7 @@ parcial.
 ## 💻 Requisitos recomendados
 
 -   Webcam funcional
--   CPU moderna (64 bits)
--   4GB RAM recomendados
+-   2GB RAM recomendados
 -   Navegador actualizado
 
 ------------------------------------------------------------------------
@@ -193,13 +192,6 @@ Navegadores recomendados:
 -   Estado: Terminado
 -   Naturaleza: Experimental
 -   Enfoque: Investigación en interacción 3D basada en visión
-
-------------------------------------------------------------------------
-
-## 🚀 Posibles mejoras futuras
-
--   Soporte para múltiples manos
--   Gestos adicionales (pinch para zoom fino)
 
 ------------------------------------------------------------------------
 
